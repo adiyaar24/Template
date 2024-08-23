@@ -1,0 +1,123 @@
+pipeline:
+  name: tu-python-build
+  identifier: tupythonbuild
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        repoName: Vulnerable-API
+        build: <+input>
+        sparseCheckout: []
+        depth: 5
+  stages:
+    - stage:
+        name: build
+        identifier: build
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - step:
+                  type: Background
+                  name: DinD
+                  identifier: DinD
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: docker:dind
+                    shell: Sh
+                    entrypoint:
+                      - docker-entrypoint.sh
+                      - "--mtu=1450"
+              - parallel:
+                  - step:
+                      type: Run
+                      name: Unit Test
+                      identifier: Run_1
+                      spec:
+                        shell: Sh
+                        command: |-
+                          python3 --version
+                          pip3 install pytest
+
+                          pwd
+                          ls
+                          cd unittest
+                          python3 -m pytest test.py --junit-xml=report.xml
+                        reports:
+                          type: JUnit
+                          spec:
+                            paths:
+                              - unittest/report.xml
+                  - step:
+                      type: Semgrep
+                      name: Semgrep SAST
+                      identifier: Semgrep_SAST
+                      spec:
+                        mode: orchestration
+                        config: default
+                        target:
+                          type: repository
+                          detection: auto
+                        advanced:
+                          log:
+                            level: debug
+              - step:
+                  type: BuildAndPushDockerRegistry
+                  name: Build Image
+                  identifier: Build_Image
+                  spec:
+                    connectorRef: trustunion
+                    repo: aprvh1/vulnerable-app
+                    tags:
+                      - <+pipeline.executionId>
+                    buildArgs:
+                      no-push: "true"
+                      tar-path: /opt/docker_cache/image.tar
+                    envVariables:
+                      PLUGIN_NO_PUSH: "true"
+                      PLUGIN_TAR_PATH: /opt/docker_cache/image.tar
+              - step:
+                  type: Run
+                  name: Load Local Image
+                  identifier: Load_Local_Image
+                  spec:
+                    connectorRef: account.harnessImage
+                    image: docker:dind
+                    shell: Sh
+                    command: |-
+                      echo "Loading Docker Image"
+                      docker images
+                      echo "-----"
+                      # docker load --input /opt/docker_cache/image.tar
+                      echo ""
+                      echo ""
+                      docker images
+                      echo "-----"
+          sharedPaths:
+            - /var/run
+            - /var/lib/docker
+            - /opt/docker_cache
+          caching:
+            enabled: false
+            paths: []
+        variables:
+          - name: PLUGIN_NO_PUSH
+            type: String
+            description: ""
+            required: false
+            value: "true"
+          - name: PLUGIN_TAR_PATH
+            type: String
+            description: ""
+            required: false
+            value: /opt/docker_cache/image.tar
