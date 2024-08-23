@@ -1,0 +1,129 @@
+pipeline:
+  name: Java Build Pipeline
+  identifier: Java_Build_Pipeline
+  projectIdentifier: default_project
+  orgIdentifier: default
+  tags: {}
+  properties:
+    ci:
+      codebase:
+        repoName: gradle-build-scan-quickstart
+        build: <+input>
+  stages:
+    - stage:
+        name: Gradle Build
+        identifier: Gradle_Build
+        description: ""
+        type: CI
+        spec:
+          cloneCodebase: true
+          platform:
+            os: Linux
+            arch: Amd64
+          runtime:
+            type: Cloud
+            spec: {}
+          execution:
+            steps:
+              - parallel:
+                  - stepGroup:
+                      name: Gradle Build Test Scan
+                      identifier: Gradle_Build_Test_Scan
+                      steps:
+                        - step:
+                            type: Run
+                            name: Gradle Build
+                            identifier: Gradle_Build
+                            spec:
+                              shell: Sh
+                              command: ./gradlew build
+                            when:
+                              stageStatus: Success
+                        - stepGroup:
+                            name: Semgrep SAST
+                            identifier: Semgrep_SAST
+                            template:
+                              templateRef: SemGrep_SAST
+                              versionLabel: 1.0.0
+                              templateInputs:
+                                variables:
+                                  - name: SCAN_VARIANT
+                                    type: String
+                                    value: <+input>.default(<+codebase.branch>)
+                                    default: <+codebase.branch>
+                        - step:
+                            type: RunTests
+                            name: Run Tests
+                            identifier: Run_Tests
+                            spec:
+                              language: Java
+                              buildTool: Gradle
+                              args: test
+                              runOnlySelectedTests: true
+                              reports:
+                                type: JUnit
+                                spec:
+                                  paths:
+                                    - "**/*.xml"
+                              enableTestSplitting: true
+                              testSplitStrategy: ClassTiming
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.buildType>=="gradle"
+                  - stepGroup:
+                      name: Maven Build Test Scan
+                      identifier: Maven_Build_Test_Scan
+                      steps:
+                        - step:
+                            type: Run
+                            name: Maven Build
+                            identifier: Maven_Build
+                            spec:
+                              shell: Sh
+                              command: mvn clean build
+                        - stepGroup:
+                            name: Semgrep SAST
+                            identifier: Semgrep_SAST
+                            template:
+                              templateRef: SemGrep_SAST
+                              versionLabel: 1.0.0
+                              templateInputs:
+                                variables:
+                                  - name: SCAN_VARIANT
+                                    type: String
+                                    value: <+input>.default(<+codebase.branch>)
+                                    default: <+codebase.branch>
+                        - step:
+                            type: RunTests
+                            name: Run  Maven Test
+                            identifier: Run_Maven_Test
+                            spec:
+                              language: Java
+                              buildTool: Maven
+                              args: clean test
+                              runOnlySelectedTests: true
+                              reports:
+                                type: JUnit
+                                spec:
+                                  paths:
+                                    - "**/*.xml"
+                              enableTestSplitting: false
+                      when:
+                        stageStatus: Success
+                        condition: <+pipeline.variables.buildType>=="maven"
+          caching:
+            enabled: true
+            paths: []
+        when:
+          pipelineStatus: Success
+  variables:
+    - name: buildType
+      type: String
+      description: ""
+      required: true
+      value: <+input>.allowedValues(gradle,maven)
+    - name: test
+      type: String
+      description: ""
+      required: true
+      value: <+input>
